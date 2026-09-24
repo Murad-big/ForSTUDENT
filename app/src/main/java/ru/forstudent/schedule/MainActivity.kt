@@ -1,9 +1,7 @@
 package ru.forstudent.schedule
 
 import android.Manifest
-import android.app.AlarmManager
 import android.app.DatePickerDialog
-import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -14,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,19 +20,38 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +61,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
@@ -60,7 +83,6 @@ import ru.forstudent.schedule.widget.TodayWidget
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.Calendar
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -76,7 +98,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = true
         SyncWorker.schedule(this)
         SyncWorker.enqueueInitial(this)
-        setContent { MaterialTheme { App() } }
+        setContent { ScheduleTheme { App() } }
     }
 
     override fun onResume() {
@@ -114,18 +136,46 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Scaffold(bottomBar = {
-            NavigationBar {
+        val tabIcons = listOf(Icons.Default.Today, Icons.Default.DateRange, Icons.Default.Alarm, Icons.Default.Settings)
+        Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                 tabs.forEachIndexed { index, label ->
-                    NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                        icon = { Text(listOf("◉", "▦", "◷", "⚙")[index]) }, label = { Text(label) })
+                    NavigationBarItem(
+                        selected = tab == index,
+                        onClick = { tab = index },
+                        icon = { Icon(tabIcons[index], contentDescription = null) },
+                        label = { Text(label, maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ScheduleColors.blue,
+                            selectedTextColor = ScheduleColors.blue,
+                            indicatorColor = ScheduleColors.paleBlue,
+                            unselectedIconColor = ScheduleColors.muted,
+                            unselectedTextColor = ScheduleColors.navy,
+                        ),
+                    )
                 }
             }
         }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-                Text("Расписание ИУБиП", style = MaterialTheme.typography.headlineMedium)
-                Text(settings.group, style = MaterialTheme.typography.bodyMedium)
-                message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+                Spacer(Modifier.height(20.dp))
+                Text("Расписание ИУБиП", color = ScheduleColors.navy,
+                    style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(14.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { tab = 3 },
+                    shape = RoundedCornerShape(18.dp),
+                    color = ScheduleColors.paleBlue,
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(settings.group, modifier = Modifier.weight(1f), color = ScheduleColors.navy,
+                            style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Изменить группу", tint = ScheduleColors.navy)
+                    }
+                }
+                message?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                }
                 Spacer(Modifier.height(12.dp))
                 when (tab) {
                     0 -> TodayPage(snapshot, scheduler, ::refresh, ::openSite)
@@ -184,24 +234,60 @@ class MainActivity : ComponentActivity() {
 private fun TodayPage(snapshot: ScheduleSnapshot?, scheduler: AlarmScheduler, refresh: () -> Unit, openSite: () -> Unit) {
     val today = LocalDate.now(AlarmPlanner.zone)
     val tomorrow = today.plusDays(1)
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val ru = Locale.forLanguageTag("ru")
+    val next = if (scheduler.exactAllowed()) snapshot?.let { scheduler.planned(it).firstOrNull() } else null
+    val tomorrowLessons = (snapshot?.day(tomorrow) as? DaySchedule.WithLessons)?.lessons
+    val tomorrowText = tomorrowLessons?.minByOrNull { it.start }?.let { "${it.start} · ${it.subject}" }
+        ?: if (snapshot == null || snapshot.day(tomorrow) == DaySchedule.Unpublished) "не опубликовано" else "пар нет"
+    val nextText = next?.triggerAt?.atZone(AlarmPlanner.zone)
+        ?.format(DateTimeFormatter.ofPattern("d MMMM HH:mm", ru)) ?: "не назначен"
+    val syncText = snapshot?.lastSuccessMillis?.let {
+        Instant.ofEpochMilli(it).atZone(AlarmPlanner.zone)
+            .format(DateTimeFormatter.ofPattern("d MMMM HH:mm", ru))
+    } ?: "ещё не было"
+
+    LazyColumn(contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text(today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.forLanguageTag("ru"))), style = MaterialTheme.typography.titleLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = refresh) { Text("Обновить") }
-                Button(onClick = openSite) { Text("Открыть расписание на сайте") }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", ru)).replaceFirstChar { it.uppercaseChar() },
+                    modifier = Modifier.weight(1f), color = ScheduleColors.navy,
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Button(onClick = refresh, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("Обновить")
+                }
             }
         }
         item { DayCard("Сегодня", snapshot?.day(today)) }
         item {
-            val tomorrowLessons = (snapshot?.day(tomorrow) as? DaySchedule.WithLessons)?.lessons
-            Text("Первая пара завтра: " + (tomorrowLessons?.minByOrNull { it.start }?.let { "${it.start} · ${it.subject}" }
-                ?: if (snapshot == null || snapshot.day(tomorrow) == DaySchedule.Unpublished) "расписание не опубликовано" else "пар нет"))
-            val next = if (scheduler.exactAllowed()) snapshot?.let { scheduler.planned(it).firstOrNull() } else null
-            Text("Следующий будильник: " + (next?.triggerAt?.atZone(AlarmPlanner.zone)?.format(DateTimeFormatter.ofPattern("d MMMM HH:mm", Locale.forLanguageTag("ru"))) ?: "не назначен"))
-            Text("Последняя успешная загрузка: " + (snapshot?.lastSuccessMillis?.let {
-                Instant.ofEpochMilli(it).atZone(AlarmPlanner.zone).format(DateTimeFormatter.ofPattern("d MMMM HH:mm", Locale.forLanguageTag("ru")))
-            } ?: "ещё не было"))
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, ScheduleColors.outline)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SummaryLine(Icons.Default.DateRange, "Первая пара завтра", tomorrowText)
+                    SummaryLine(Icons.Default.Alarm, "Следующий будильник", nextText)
+                    SummaryLine(Icons.Default.AccessTime, "Последняя загрузка", syncText)
+                }
+            }
+        }
+        item {
+            TextButton(onClick = openSite, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Открыть расписание на сайте")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryLine(icon: ImageVector, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(icon, contentDescription = null, tint = ScheduleColors.blue, modifier = Modifier.size(20.dp))
+        Column {
+            Text(label, color = ScheduleColors.muted, style = MaterialTheme.typography.bodySmall)
+            Text(value, color = ScheduleColors.navy, style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -226,14 +312,20 @@ private fun WeekPage(snapshot: ScheduleSnapshot?) {
 
 @Composable
 private fun DayCard(title: String, day: DaySchedule?) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = ScheduleColors.paleBlue)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = ScheduleColors.navy,
+                fontWeight = FontWeight.Bold)
             when (day) {
-                null -> Text("Загрузка…")
-                DaySchedule.Unpublished -> Text("Расписание ещё не опубликовано")
-                DaySchedule.PublishedEmpty -> Text("Пар нет")
-                is DaySchedule.WithLessons -> day.lessons.forEach { LessonRow(it) }
+                null -> Text("Загрузка…", color = ScheduleColors.muted)
+                DaySchedule.Unpublished -> Text("Расписание ещё не опубликовано", color = ScheduleColors.muted)
+                DaySchedule.PublishedEmpty -> Text(if (title == "Сегодня") "Сегодня пар нет" else "Пар нет", color = ScheduleColors.muted)
+                is DaySchedule.WithLessons -> Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        day.lessons.sortedWith(compareBy({ it.start }, { it.slot }, { it.subject })).forEach { LessonRow(it) }
+                    }
+                }
             }
         }
     }
@@ -241,11 +333,25 @@ private fun DayCard(title: String, day: DaySchedule?) {
 
 @Composable
 private fun LessonRow(lesson: Lesson) {
-    Column(Modifier.padding(vertical = 5.dp)) {
-        Text("${lesson.start}–${lesson.end} · ${lesson.slot} пара · ${lesson.subject}")
-        Text(listOf(lesson.type, lesson.teacher, "ауд. ${lesson.room}",
-            lesson.subgroup.takeIf { it != "0" }?.let { "подгруппа $it" }.orEmpty()).filter { it.isNotBlank() }.joinToString(" · "),
-            style = MaterialTheme.typography.bodySmall)
+    Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("${lesson.start}–${lesson.end}", modifier = Modifier.width(86.dp),
+            color = ScheduleColors.navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.weight(1f)) {
+            Text(lesson.subject, color = ScheduleColors.navy, style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium)
+            val details = listOf(lesson.type, lesson.teacher,
+                lesson.subgroup.takeIf { it.isNotBlank() && it != "0" }?.let { "подгруппа $it" }.orEmpty())
+                .filter { it.isNotBlank() }.joinToString(" · ")
+            if (details.isNotEmpty()) Text(details, color = ScheduleColors.muted,
+                style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (lesson.room.isNotBlank()) {
+            Surface(shape = RoundedCornerShape(10.dp), color = ScheduleColors.badge) {
+                Text("ауд. ${lesson.room}", modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
+                    color = ScheduleColors.navy, fontSize = 11.sp, maxLines = 1)
+            }
+        }
     }
 }
 
