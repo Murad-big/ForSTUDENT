@@ -26,5 +26,17 @@ class ScheduleSettings(context: Context, preferencesName: String = "settings") {
         get() = prefs.getLong("last_attempt", 0)
         set(value) { prefs.edit().putLong("last_attempt", value).apply() }
 
+    var groupCatalogJson: String?
+        get() = prefs.getString("group_catalog", null)
+        set(value) { prefs.edit().putString("group_catalog", value).apply() }
+
+    var groupCatalogSuccessMillis: Long
+        get() = prefs.getLong("group_catalog_success", 0)
+        set(value) { prefs.edit().putLong("group_catalog_success", value).apply() }
+
+    var groupCatalogAttemptMillis: Long
+        get() = prefs.getLong("group_catalog_attempt", 0)
+        set(value) { prefs.edit().putLong("group_catalog_attempt", value).apply() }
+
     companion object { const val DEFAULT_GROUP = "К3Ю3(9),К3Ю4(9)" }
 }

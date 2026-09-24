@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,8 +40,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -58,7 +61,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -73,13 +75,16 @@ import kotlinx.coroutines.launch
 import ru.forstudent.schedule.alarm.AlarmScheduler
 import ru.forstudent.schedule.data.ScheduleRepository
 import ru.forstudent.schedule.data.ScheduleSettings
+import ru.forstudent.schedule.data.GroupCatalogRepository
 import ru.forstudent.schedule.data.ScheduleSnapshot
 import ru.forstudent.schedule.data.SyncOutcome
 import ru.forstudent.schedule.domain.AlarmPlanner
 import ru.forstudent.schedule.domain.DaySchedule
 import ru.forstudent.schedule.domain.Lesson
+import ru.forstudent.schedule.domain.GroupOption
 import ru.forstudent.schedule.sync.SyncWorker
 import ru.forstudent.schedule.widget.TodayWidget
+import ru.forstudent.schedule.widget.WidgetPinHelper
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -87,6 +92,7 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy { ScheduleRepository(this) }
+    private val groupCatalog by lazy { GroupCatalogRepository(this) }
     private val settings by lazy { ScheduleSettings(this) }
     private val scheduler by lazy { AlarmScheduler(this) }
     private var permissionsRevision by mutableIntStateOf(0)
@@ -111,30 +117,90 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun App() {
-        val scope = rememberCoroutineScope()
         var snapshot by remember { mutableStateOf<ScheduleSnapshot?>(null) }
         var message by remember { mutableStateOf<String?>(null) }
         var tab by remember { mutableIntStateOf(0) }
         var settingVersion by remember { mutableIntStateOf(0) }
+        var selectedGroup by remember { mutableStateOf(settings.group) }
+        var showGroupPicker by remember { mutableStateOf(false) }
+        var groupOptions by remember { mutableStateOf<List<GroupOption>>(emptyList()) }
+        var groupLoading by remember { mutableStateOf(false) }
+        var groupError by remember { mutableStateOf<String?>(null) }
+        var showWidgetChooser by remember { mutableStateOf(false) }
         val permissionsVersion = permissionsRevision
         val tabs = listOf("Сегодня", "Неделя", "Будильник", "Настройки")
 
         LaunchedEffect(Unit) { repository.observe().collect { snapshot = it } }
 
-        fun refresh() {
-            scope.launch {
-                message = when (val outcome = repository.sync(force = true)) {
-                    SyncOutcome.Updated -> {
-                        snapshot = repository.snapshot()
-                        scheduler.reconcile(snapshot!!)
-                        TodayWidget.updateAll(this@MainActivity)
-                        "Расписание обновлено"
-                    }
-                    SyncOutcome.Throttled -> "Повторное обновление доступно через минуту"
-                    is SyncOutcome.Failed -> "Ошибка загрузки: ${outcome.message}. Сохранено прежнее расписание"
+        suspend fun syncNow(groupChanged: Boolean = false) {
+            val outcome = repository.sync(force = true)
+            message = when (outcome) {
+                SyncOutcome.Updated -> {
+                    snapshot = repository.snapshot()
+                    scheduler.reconcile(snapshot!!)
+                    TodayWidget.updateAll(this@MainActivity)
+                    "Расписание обновлено"
+                }
+                SyncOutcome.Throttled -> "Повторное обновление доступно через минуту"
+                is SyncOutcome.Failed -> if (groupChanged) {
+                    "Не удалось загрузить группу $selectedGroup: ${outcome.message}. Её расписание пока недоступно"
+                } else {
+                    "Ошибка загрузки: ${outcome.message}. Сохранено прежнее расписание"
                 }
             }
+            if (groupChanged && outcome != SyncOutcome.Updated) TodayWidget.updateAll(this@MainActivity)
         }
+
+        fun refresh() { lifecycleScope.launch { syncNow() } }
+
+        fun loadGroups(force: Boolean) {
+            lifecycleScope.launch {
+                groupLoading = true
+                val result = groupCatalog.load(force)
+                groupOptions = result.groups
+                groupError = result.error
+                groupLoading = false
+            }
+        }
+
+        fun chooseGroup(group: String) {
+            showGroupPicker = false
+            if (group.trim() == selectedGroup) return
+            lifecycleScope.launch {
+                message = "Загрузка расписания группы ${group.trim()}…"
+                scheduler.cancelAll()
+                repository.changeGroup(group)
+                selectedGroup = settings.group
+                snapshot = repository.snapshot()
+                settingVersion++
+                syncNow(groupChanged = true)
+            }
+        }
+
+        fun pinWidget(compact: Boolean) {
+            showWidgetChooser = false
+            message = if (WidgetPinHelper.requestPin(this@MainActivity, compact)) {
+                "Подтвердите добавление виджета на рабочий стол"
+            } else {
+                "Зажмите пустое место на рабочем столе, выберите «Виджеты» → «Расписание ИУБиП»"
+            }
+        }
+
+        if (showGroupPicker) GroupPickerDialog(selectedGroup, groupOptions, groupLoading, groupError,
+            onRefresh = { loadGroups(true) }, onSelect = ::chooseGroup,
+            onDismiss = { showGroupPicker = false })
+        if (showWidgetChooser) AlertDialog(
+            onDismissRequest = { showWidgetChooser = false },
+            title = { Text("Виджет на рабочем столе") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Выберите размер. Телефон попросит подтвердить размещение.")
+                    Button(onClick = { pinWidget(false) }, modifier = Modifier.fillMaxWidth()) { Text("Основной · пары на сегодня") }
+                    Button(onClick = { pinWidget(true) }, modifier = Modifier.fillMaxWidth()) { Text("Компактный · текущая пара") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showWidgetChooser = false }) { Text("Закрыть") } },
+        )
 
         val tabIcons = listOf(Icons.Default.Today, Icons.Default.DateRange, Icons.Default.Alarm, Icons.Default.Settings)
         Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = {
@@ -162,12 +228,12 @@ class MainActivity : ComponentActivity() {
                     style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { tab = 3 },
+                    modifier = Modifier.fillMaxWidth().clickable { showGroupPicker = true; loadGroups(false) },
                     shape = RoundedCornerShape(18.dp),
                     color = ScheduleColors.paleBlue,
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(settings.group, modifier = Modifier.weight(1f), color = ScheduleColors.navy,
+                        Text(selectedGroup, modifier = Modifier.weight(1f), color = ScheduleColors.navy,
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                         Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Изменить группу", tint = ScheduleColors.navy)
                     }
@@ -178,7 +244,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(12.dp))
                 when (tab) {
-                    0 -> TodayPage(snapshot, scheduler, ::refresh, ::openSite)
+                    0 -> TodayPage(snapshot, scheduler, ::refresh, ::openSite, onAddWidget = { showWidgetChooser = true })
                     1 -> WeekPage(snapshot)
                     2 -> AlarmPage(snapshot, settingVersion + permissionsVersion, onChanged = {
                         settingVersion++
@@ -188,16 +254,9 @@ class MainActivity : ComponentActivity() {
                     }, requestFullScreen = ::requestFullScreen, openClocks = ::openClocks, chooseSkipDate = {
                         chooseSkipDate { date -> settings.skipDate = date; settingVersion++; snapshot?.let { scheduler.reconcile(it) } }
                     })
-                    else -> SettingsPage(settings.group, onSave = { group ->
-                        scope.launch {
-                            scheduler.cancelAll()
-                            repository.changeGroup(group)
-                            snapshot = repository.snapshot()
-                            TodayWidget.updateAll(this@MainActivity)
-                            settingVersion++
-                            refresh()
-                        }
-                    }, ::openSite)
+                    else -> SettingsPage(selectedGroup, onSave = ::chooseGroup,
+                        onChooseFromList = { showGroupPicker = true; loadGroups(false) },
+                        onAddWidget = { showWidgetChooser = true }, openSite = ::openSite)
                 }
             }
         }
@@ -231,7 +290,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TodayPage(snapshot: ScheduleSnapshot?, scheduler: AlarmScheduler, refresh: () -> Unit, openSite: () -> Unit) {
+private fun TodayPage(snapshot: ScheduleSnapshot?, scheduler: AlarmScheduler, refresh: () -> Unit,
+                      openSite: () -> Unit, onAddWidget: () -> Unit) {
     val today = LocalDate.now(AlarmPlanner.zone)
     val tomorrow = today.plusDays(1)
     val ru = Locale.forLanguageTag("ru")
@@ -277,6 +337,7 @@ private fun TodayPage(snapshot: ScheduleSnapshot?, scheduler: AlarmScheduler, re
                 Text("Открыть расписание на сайте")
             }
         }
+        item { Button(onClick = onAddWidget, modifier = Modifier.fillMaxWidth()) { Text("Добавить виджет на рабочий стол") } }
     }
 }
 
@@ -395,12 +456,63 @@ private fun AlarmPage(snapshot: ScheduleSnapshot?, version: Int, onChanged: () -
 }
 
 @Composable
-private fun SettingsPage(currentGroup: String, onSave: (String) -> Unit, openSite: () -> Unit) {
+private fun SettingsPage(currentGroup: String, onSave: (String) -> Unit,
+                         onChooseFromList: () -> Unit, onAddWidget: () -> Unit, openSite: () -> Unit) {
     var group by remember(currentGroup) { mutableStateOf(currentGroup) }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(value = group, onValueChange = { group = it }, label = { Text("Группа") }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { if (group.isNotBlank()) onSave(group) }) { Text("Сохранить группу") }
+        Text("Группа: $currentGroup", style = MaterialTheme.typography.titleMedium)
+        Button(onClick = onChooseFromList, modifier = Modifier.fillMaxWidth()) { Text("Выбрать группу из списка") }
+        OutlinedTextField(value = group, onValueChange = { group = it },
+            label = { Text("Или введите группу вручную") }, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { if (group.isNotBlank()) onSave(group) }) { Text("Сохранить введённую группу") }
+        Button(onClick = onAddWidget, modifier = Modifier.fillMaxWidth()) { Text("Добавить виджет на рабочий стол") }
         Button(onClick = openSite) { Text("Открыть расписание на сайте") }
         Text("Часовой пояс будильников: Europe/Moscow")
     }
+}
+
+@Composable
+private fun GroupPickerDialog(currentGroup: String, groups: List<GroupOption>, loading: Boolean,
+                              error: String?, onRefresh: () -> Unit, onSelect: (String) -> Unit,
+                              onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val matching = remember(groups, query) {
+        groups.filter { it.name.contains(query.trim(), ignoreCase = true) ||
+            it.academy.contains(query.trim(), ignoreCase = true) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Выберите группу") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = query, onValueChange = { query = it },
+                    label = { Text("Поиск группы") },
+                    placeholder = { Text("Название или академия") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                if (loading) CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall) }
+                if (!loading && matching.isEmpty()) {
+                    Text(if (groups.isEmpty()) "Список пока недоступен. Можно ввести группу вручную в настройках."
+                        else "Группа не найдена")
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                    matching.groupBy { it.academy }.forEach { (academy, entries) ->
+                        item(key = "academy:$academy") {
+                            Text(academy, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.labelMedium, color = ScheduleColors.muted)
+                        }
+                        items(entries, key = { "group:${it.name}" }) { option ->
+                            TextButton(onClick = { onSelect(option.name) }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (option.name == currentGroup) "✓ ${option.name}" else option.name,
+                                    modifier = Modifier.fillMaxWidth(), color = ScheduleColors.navy)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onRefresh, enabled = !loading) { Text("Обновить список") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
 }

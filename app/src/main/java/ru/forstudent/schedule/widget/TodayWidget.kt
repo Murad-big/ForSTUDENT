@@ -34,6 +34,7 @@ import kotlinx.coroutines.withContext
 import ru.forstudent.schedule.MainActivity
 import ru.forstudent.schedule.R
 import ru.forstudent.schedule.data.ScheduleRepository
+import ru.forstudent.schedule.data.ScheduleSettings
 import ru.forstudent.schedule.domain.AlarmPlanner
 import ru.forstudent.schedule.domain.DaySchedule
 import ru.forstudent.schedule.domain.Lesson
@@ -52,6 +53,8 @@ open class TodayWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snapshot = withContext(Dispatchers.IO) { ScheduleRepository(context).snapshot() }
+        WidgetRefreshScheduler(context).scheduleNext(snapshot)
+        val group = ScheduleSettings(context).group
         val today = LocalDate.now(AlarmPlanner.zone)
         val day = snapshot.day(today)
         provideContent {
@@ -60,7 +63,7 @@ open class TodayWidget : GlanceAppWidget() {
             val date = today.format(DateTimeFormatter.ofPattern("d MMMM", ru))
             val lessons = (day as? DaySchedule.WithLessons)?.lessons
                 ?.sortedWith(compareBy({ it.start }, { it.slot }, { it.subject })).orEmpty()
-            val upcoming = lessons.firstOrNull { it.end > LocalTime.now(AlarmPlanner.zone) }
+            val focus = widgetLessonFocus(lessons, LocalTime.now(AlarmPlanner.zone))
             val widgetBackground = if (compact) R.drawable.widget_compact_background else R.drawable.widget_background
 
             Column(
@@ -70,29 +73,36 @@ open class TodayWidget : GlanceAppWidget() {
                     .padding(if (compact) 11.dp else 16.dp),
             ) {
                 if (compact) {
-                    Text(today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", ru)).replaceFirstChar { it.uppercaseChar() },
-                        style = TextStyle(color = ColorProvider(navy), fontSize = 17.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                    Text("$group · ${today.format(DateTimeFormatter.ofPattern("d MMMM", ru))}",
+                        style = TextStyle(color = ColorProvider(navy), fontSize = 15.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                     Spacer(GlanceModifier.height(3.dp))
                     when (day) {
                         DaySchedule.Unpublished -> WidgetMessage("Расписание ещё не опубликовано")
                         DaySchedule.PublishedEmpty -> WidgetMessage("Сегодня пар нет")
                         is DaySchedule.WithLessons -> {
-                            Text(if (upcoming == null) "Сегодня пары закончились" else "Ближайшая пара:",
+                            val label = when (focus?.phase) {
+                                LessonPhase.CURRENT -> "Сейчас идёт пара"
+                                LessonPhase.NEXT -> "Следующая пара"
+                                LessonPhase.FINISHED -> "Последняя пара сегодня"
+                                null -> "Сегодня пар нет"
+                            }
+                            Text(label,
                                 style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
-                            if (upcoming != null) {
+                            if (focus != null) {
+                                val highlighted = focus.lesson
                                 Spacer(GlanceModifier.height(3.dp))
                                 Row(GlanceModifier.fillMaxWidth()) {
-                                    Text(upcoming.start.toString(), modifier = GlanceModifier.width(52.dp),
+                                    Text(highlighted.start.toString(), modifier = GlanceModifier.width(52.dp),
                                         style = TextStyle(color = ColorProvider(navy), fontSize = 16.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                                     Column(GlanceModifier.defaultWeight()) {
-                                        Text(upcoming.subject,
+                                        Text(highlighted.subject,
                                             style = TextStyle(color = ColorProvider(navy), fontSize = 14.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-                                        if (size.width < 280.dp && upcoming.room.isNotBlank()) {
-                                            Text("ауд. ${upcoming.room}",
+                                        if (size.width < 280.dp && highlighted.room.isNotBlank()) {
+                                            Text("ауд. ${highlighted.room}",
                                                 style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
                                         }
                                     }
-                                    if (size.width >= 280.dp && upcoming.room.isNotBlank()) WidgetRoom(upcoming.room)
+                                    if (size.width >= 280.dp && highlighted.room.isNotBlank()) WidgetRoom(highlighted.room)
                                 }
                             }
                         }
@@ -100,15 +110,22 @@ open class TodayWidget : GlanceAppWidget() {
                 } else {
                     Text("Сегодня · $date", style = TextStyle(color = ColorProvider(navy),
                         fontSize = 21.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                    Text(group, style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
                     Spacer(GlanceModifier.height(8.dp))
                     when (day) {
                         DaySchedule.Unpublished -> WidgetMessage("Расписание ещё не опубликовано")
                         DaySchedule.PublishedEmpty -> WidgetMessage("Сегодня пар нет")
                         is DaySchedule.WithLessons -> {
-                            Text(if (upcoming == null) "Сегодня пары закончились" else "Ближайшая: ${upcoming.start} ${upcoming.subject}",
+                            val status = when (focus?.phase) {
+                                LessonPhase.CURRENT -> "Сейчас: ${focus.lesson.start} ${focus.lesson.subject}"
+                                LessonPhase.NEXT -> "Следующая: ${focus.lesson.start} ${focus.lesson.subject}"
+                                LessonPhase.FINISHED -> "Сегодня пары закончились"
+                                null -> "Сегодня пар нет"
+                            }
+                            Text(status,
                                 style = TextStyle(color = ColorProvider(muted), fontSize = 14.sp), maxLines = 1)
                             Spacer(GlanceModifier.height(12.dp))
-                            val maxRows = ((size.height.value - 110f) / 46f).toInt().coerceIn(1, 6)
+                            val maxRows = ((size.height.value - 122f) / 46f).toInt().coerceIn(1, 6)
                             Column(GlanceModifier.fillMaxWidth().background(ImageProvider(R.drawable.widget_row_background)).padding(10.dp)) {
                                 lessons.take(maxRows).forEach { lesson -> WidgetLessonRow(lesson, size.width >= 300.dp) }
                                 if (lessons.size > maxRows) {

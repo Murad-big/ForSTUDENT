@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import ru.forstudent.schedule.domain.DaySchedule
 import ru.forstudent.schedule.domain.Lesson
 import ru.forstudent.schedule.source.IubipScheduleClient
@@ -43,13 +45,14 @@ class ScheduleRepository(
         ScheduleSnapshot(lessons.map { it.lesson() }, dates.map { LocalDate.parse(it.date) }.toSet(), meta?.lastSuccessMillis)
     }
 
-    suspend fun sync(force: Boolean = false): SyncOutcome = withContext(Dispatchers.IO) {
+    suspend fun sync(force: Boolean = false): SyncOutcome = withContext(Dispatchers.IO) { mutationMutex.withLock {
         val now = nowMillis()
         val minInterval = if (force) 60_000L else 30 * 60_000L
-        if (now - settings.lastAttemptMillis < minInterval) return@withContext SyncOutcome.Throttled
+        if (now - settings.lastAttemptMillis < minInterval) return@withLock SyncOutcome.Throttled
         settings.lastAttemptMillis = now
         try {
-            val parsed = parser.parse(fetch(settings.group), settings.group)
+            val group = settings.group
+            val parsed = parser.parse(fetch(group), group)
             val dates = parsed.publishedDates.map { it.toString() }
             db.withTransaction {
                 dao.deleteLessons(dates)
@@ -66,12 +69,17 @@ class ScheduleRepository(
         } catch (error: Exception) {
             SyncOutcome.Failed(error.message ?: "Неизвестная ошибка загрузки")
         }
-    }
+    } }
 
-    suspend fun changeGroup(group: String) = withContext(Dispatchers.IO) {
-        require(group.isNotBlank())
+    suspend fun changeGroup(group: String) = withContext(Dispatchers.IO) { mutationMutex.withLock {
+        val selected = group.trim()
+        require(selected.isNotBlank())
+        if (selected == settings.group) return@withLock
         db.withTransaction { dao.clearLessons(); dao.clearDates(); dao.clearMeta() }
-        settings.group = group
+        settings.group = selected
         settings.lastAttemptMillis = 0
-    }
+        settings.skipDate = null
+    } }
+
+    companion object { private val mutationMutex = Mutex() }
 }

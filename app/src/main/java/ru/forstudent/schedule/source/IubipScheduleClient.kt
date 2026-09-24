@@ -13,6 +13,12 @@ class IubipScheduleClient {
 
     fun fetch(group: String): String {
         val body = "do=schedule&group=" + URLEncoder.encode(group, Charsets.UTF_8.name())
+        return post(body)
+    }
+
+    fun fetchGroups(): String = post("do=groups")
+
+    private fun post(body: String): String {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000

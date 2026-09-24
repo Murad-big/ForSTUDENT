@@ -11,11 +11,18 @@ import ru.forstudent.schedule.domain.Lesson
 import ru.forstudent.schedule.domain.LessonTimeTable
 import ru.forstudent.schedule.domain.ScheduleDataException
 import ru.forstudent.schedule.source.IubipScheduleParser
+import ru.forstudent.schedule.source.IubipGroupCatalogParser
+import ru.forstudent.schedule.widget.LessonPhase
+import ru.forstudent.schedule.widget.widgetLessonFocus
+import ru.forstudent.schedule.widget.nextWidgetRefreshAt
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.Duration
 import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import ru.forstudent.schedule.domain.AlarmPlanner.zone
 
 class ScheduleLogicTest {
     private val group = "ГРУППА"
@@ -89,5 +96,33 @@ class ScheduleLogicTest {
         assertTrue(AlarmReconciliation.diff(old, old).schedule.isEmpty())
         assertEquals(old, AlarmReconciliation.diff(old, old, force = true).schedule)
         assertEquals(mapOf("2026-09-24" to 200L), AlarmReconciliation.diff(old, mapOf("2026-09-24" to 200L)).schedule)
+    }
+
+    @Test fun groupCatalogKeepsAcademiesAndExactGroupNames() {
+        val groups = IubipGroupCatalogParser().parse("""{
+            "Право":{"К3Ю3(9),К3Ю4(9)":1,"ЮД201":1},
+            "Экономика":{"ЭД401":1}
+        }""")
+        assertEquals(3, groups.size)
+        assertEquals("Право", groups.first { it.name == "К3Ю3(9),К3Ю4(9)" }.academy)
+        assertThrows(ScheduleDataException::class.java) {
+            IubipGroupCatalogParser().parse("""{"Право":{"":1}}""")
+        }
+    }
+
+    @Test fun widgetShowsCurrentNextAndLastLesson() {
+        val lessons = parser.parse(fixture(), group).lessons.filter { it.date == date }
+        assertEquals(LessonPhase.NEXT, widgetLessonFocus(lessons, LocalTime.of(9, 0))?.phase)
+        assertEquals(LessonPhase.CURRENT, widgetLessonFocus(lessons, LocalTime.of(12, 0))?.phase)
+        assertEquals(LessonPhase.FINISHED, widgetLessonFocus(lessons, LocalTime.of(22, 0))?.phase)
+    }
+
+    @Test fun widgetRefreshesAtLessonBoundaryAndMidnight() {
+        val parsed = parser.parse(fixture(), group)
+        val snapshot = ScheduleSnapshot(parsed.lessons, parsed.publishedDates, null)
+        val morning = ZonedDateTime.of(2026, 9, 24, 10, 0, 0, 0, zone)
+        assertEquals("2026-09-24T08:40:00Z", nextWidgetRefreshAt(snapshot, morning).toString())
+        val evening = ZonedDateTime.of(2026, 9, 24, 22, 0, 0, 0, zone)
+        assertEquals("2026-09-24T21:00:00Z", nextWidgetRefreshAt(snapshot, evening).toString())
     }
 }
