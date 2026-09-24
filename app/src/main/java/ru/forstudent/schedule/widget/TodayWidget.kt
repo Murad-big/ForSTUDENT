@@ -66,26 +66,26 @@ class TodayWidget : GlanceAppWidget() {
                 modifier = GlanceModifier.fillMaxSize()
                     .background(ImageProvider(widgetBackground))
                     .clickable(actionStartActivity<MainActivity>())
-                    .padding(16.dp),
+                    .padding(if (compact) 11.dp else 16.dp),
             ) {
                 if (compact) {
                     Text(today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", ru)).replaceFirstChar { it.uppercaseChar() },
-                        style = TextStyle(color = ColorProvider(navy), fontSize = 19.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-                    Spacer(GlanceModifier.height(7.dp))
+                        style = TextStyle(color = ColorProvider(navy), fontSize = 17.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                    Spacer(GlanceModifier.height(3.dp))
                     when (day) {
                         DaySchedule.Unpublished -> WidgetMessage("Расписание ещё не опубликовано")
                         DaySchedule.PublishedEmpty -> WidgetMessage("Сегодня пар нет")
                         is DaySchedule.WithLessons -> {
                             Text(if (upcoming == null) "Сегодня пары закончились" else "Ближайшая пара:",
-                                style = TextStyle(color = ColorProvider(muted), fontSize = 13.sp), maxLines = 1)
+                                style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
                             if (upcoming != null) {
-                                Spacer(GlanceModifier.height(5.dp))
+                                Spacer(GlanceModifier.height(3.dp))
                                 Row(GlanceModifier.fillMaxWidth()) {
                                     Text(upcoming.start.toString(), modifier = GlanceModifier.width(52.dp),
-                                        style = TextStyle(color = ColorProvider(navy), fontSize = 18.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                                        style = TextStyle(color = ColorProvider(navy), fontSize = 16.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                                     Column(GlanceModifier.defaultWeight()) {
                                         Text(upcoming.subject,
-                                            style = TextStyle(color = ColorProvider(navy), fontSize = 15.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                                            style = TextStyle(color = ColorProvider(navy), fontSize = 14.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                                         if (size.width < 280.dp && upcoming.room.isNotBlank()) {
                                             Text("ауд. ${upcoming.room}",
                                                 style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
