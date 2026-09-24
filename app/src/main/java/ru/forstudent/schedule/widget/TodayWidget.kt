@@ -83,8 +83,14 @@ class TodayWidget : GlanceAppWidget() {
                                 Row(GlanceModifier.fillMaxWidth()) {
                                     Text(upcoming.start.toString(), modifier = GlanceModifier.width(52.dp),
                                         style = TextStyle(color = ColorProvider(navy), fontSize = 18.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-                                    Text(upcoming.subject, modifier = GlanceModifier.defaultWeight(),
-                                        style = TextStyle(color = ColorProvider(navy), fontSize = 15.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                                    Column(GlanceModifier.defaultWeight()) {
+                                        Text(upcoming.subject,
+                                            style = TextStyle(color = ColorProvider(navy), fontSize = 15.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                                        if (size.width < 280.dp && upcoming.room.isNotBlank()) {
+                                            Text("ауд. ${upcoming.room}",
+                                                style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
+                                        }
+                                    }
                                     if (size.width >= 280.dp && upcoming.room.isNotBlank()) WidgetRoom(upcoming.room)
                                 }
                             }
@@ -135,8 +141,14 @@ private fun WidgetLessonRow(lesson: Lesson, showRoom: Boolean) {
     Row(GlanceModifier.fillMaxWidth().padding(vertical = 5.dp)) {
         Text("${lesson.start}–${lesson.end}", modifier = GlanceModifier.width(99.dp),
             style = TextStyle(color = ColorProvider(navy), fontSize = 12.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-        Text(lesson.subject, modifier = GlanceModifier.defaultWeight(),
-            style = TextStyle(color = ColorProvider(navy), fontSize = 13.sp), maxLines = 2)
+        Column(GlanceModifier.defaultWeight()) {
+            Text(lesson.subject,
+                style = TextStyle(color = ColorProvider(navy), fontSize = 13.sp), maxLines = 2)
+            if (!showRoom && lesson.room.isNotBlank()) {
+                Text("ауд. ${lesson.room}",
+                    style = TextStyle(color = ColorProvider(muted), fontSize = 11.sp), maxLines = 1)
+            }
+        }
         if (showRoom && lesson.room.isNotBlank()) WidgetRoom(lesson.room)
     }
 }
