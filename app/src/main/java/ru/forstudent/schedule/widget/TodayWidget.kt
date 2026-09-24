@@ -46,8 +46,9 @@ private val navy = Color(0xFF14264A)
 private val muted = Color(0xFF637188)
 private val ru = Locale.forLanguageTag("ru")
 
-class TodayWidget : GlanceAppWidget() {
+open class TodayWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
+    protected open val alwaysCompact = false
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snapshot = withContext(Dispatchers.IO) { ScheduleRepository(context).snapshot() }
@@ -55,7 +56,7 @@ class TodayWidget : GlanceAppWidget() {
         val day = snapshot.day(today)
         provideContent {
             val size = LocalSize.current
-            val compact = size.height < 140.dp
+            val compact = alwaysCompact || size.height < 140.dp
             val date = today.format(DateTimeFormatter.ofPattern("d MMMM", ru))
             val lessons = (day as? DaySchedule.WithLessons)?.lessons
                 ?.sortedWith(compareBy({ it.start }, { it.slot }, { it.subject })).orEmpty()
@@ -126,6 +127,7 @@ class TodayWidget : GlanceAppWidget() {
         suspend fun updateAll(context: Context) {
             val manager = GlanceAppWidgetManager(context)
             manager.getGlanceIds(TodayWidget::class.java).forEach { TodayWidget().update(context, it) }
+            manager.getGlanceIds(CompactTodayWidget::class.java).forEach { CompactTodayWidget().update(context, it) }
         }
     }
 }
@@ -163,4 +165,12 @@ private fun WidgetRoom(room: String) {
 
 class TodayWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodayWidget()
+}
+
+class CompactTodayWidget : TodayWidget() {
+    override val alwaysCompact = true
+}
+
+class CompactTodayWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = CompactTodayWidget()
 }
